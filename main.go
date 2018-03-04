@@ -1,100 +1,286 @@
 package main
 
 import (
-	"fmt"
-
-	"github.com/golang/protobuf/proto"
 	"github.com/hyperledger/fabric/common/flogging"
-	"github.com/hyperledger/fabric/common/ledger/blkstorage"
-	"github.com/hyperledger/fabric/common/ledger/blkstorage/fsblkstorage"
-	"github.com/hyperledger/fabric/common/localmsp"
+	"github.com/spf13/viper"
+	"strings"
+	"github.com/hyperledger/fabric/peer/common"
+	"os"
+	"flag"
+	"github.com/hyperledger/fabric/core/ledger/ledgermgmt"
 	"github.com/hyperledger/fabric/core/peer"
-	"github.com/hyperledger/fabric/msp"
+	"github.com/hyperledger/fabric/core/ledger"
 	"github.com/hyperledger/fabric/msp/mgmt"
-	common2 "github.com/hyperledger/fabric/peer/common"
-	peergossip "github.com/hyperledger/fabric/peer/gossip"
-	"github.com/hyperledger/fabric/protos/common"
-	logging "github.com/op/go-logging"
+	"github.com/golang/protobuf/proto"
+	pb "github.com/hyperledger/fabric/protos/common"
+	"github.com/hyperledger/fabric/common/channelconfig"
+	"github.com/hyperledger/fabric/protos/utils"
+	"github.com/hyperledger/fabric/common/resourcesconfig"
+	"github.com/pkg/errors"
+	"fmt"
+	"github.com/hyperledger/fabric/common/localmsp"
+	"github.com/hyperledger/fabric/peer/gossip"
+	gossipCommon "github.com/hyperledger/fabric/gossip/common"
+	"github.com/hyperledger/fabric/common/policies"
 )
 
 var logger = flogging.MustGetLogger("common/tools/ledgerfsck")
 
-func main() {
-	logging.SetLevel(logging.INFO, "")
+type ledgerFsck struct {
+	channelName   string
+	mspConfigPath string
+	mspID         string
+	mspType       string
 
-	//'channelID' will be a parameter
-	channelID := "testorgschannel1"
+	ledger  ledger.PeerLedger
+	bundle  *channelconfig.Bundle
+	rBundle *resourcesconfig.Bundle
+}
 
-	blkStoragePath := "/tmp/peer0ledger/chains"
+func (fsck *ledgerFsck) Manager(channelID string) (policies.Manager, bool) {
+	return fsck.rBundle.PolicyManager(), true
+}
 
-	var mspMgrConfigDir = "/root/git/src/github.com/hyperledger/fabric/common/tools/cryptogen/crypto-config/peerOrganizations/org1.example.com/peers/peer0.org1.example.com/msp"
-	var mspID = "PeerOrg1"
-	var mspType = msp.ProviderTypeToString(msp.FABRIC)
+// Initialize
+func (fsck *ledgerFsck) Initialize() error {
+	// Initialize viper configuration
+	viper.SetEnvPrefix("core")
+	viper.AutomaticEnv()
+	viper.SetEnvKeyReplacer(strings.NewReplacer(".", "_"))
 
-	err := common2.InitCrypto(mspMgrConfigDir, mspID, mspType)
-	if err != nil { // Handle errors reading the config file
-		panic(fmt.Sprintf("Cannot run client because %s", err.Error()))
+	err := common.InitConfig("core")
+	if err != nil {
+		logger.Errorf("failed to initialize configuration, because of %s", err)
+		return err
+	}
+	return nil
+}
+
+// ReadConfiguration read configuration parameters
+func (fsck *ledgerFsck) ReadConfiguration() error {
+	// Read configuration parameters
+	flag.StringVar(&fsck.channelName, "channelName", "testChannel", "channel name to check the integrity")
+	flag.StringVar(&fsck.mspConfigPath, "mspPath", "", "path to the msp folder")
+	flag.StringVar(&fsck.mspID, "mspID", "", "the MSP identity of the organization")
+	flag.StringVar(&fsck.mspType, "mspType", "bccsp", "the type of the MSP provider, default bccsp")
+	flag.Parse()
+
+	if fsck.mspConfigPath == "" {
+		errMsg := "MSP folder not configured"
+		logger.Error(errMsg)
+		return errors.New(errMsg)
 	}
 
-	attrsToIndex := []blkstorage.IndexableAttr{
-		blkstorage.IndexableAttrBlockHash,
-		blkstorage.IndexableAttrBlockNum,
-		blkstorage.IndexableAttrTxID,
-		blkstorage.IndexableAttrBlockNumTranNum,
-		blkstorage.IndexableAttrBlockTxID,
-		blkstorage.IndexableAttrTxValidationCode,
+	if fsck.mspID == "" {
+		errMsg := "MSPID was not provided"
+		logger.Error(errMsg)
+		return errors.New(errMsg)
 	}
 
-	indexConfig := &blkstorage.IndexConfig{AttrsToIndex: attrsToIndex}
+	return nil
+}
 
-	conf := fsblkstorage.NewConf(blkStoragePath, 0)
+// InitCrypto
+func (fsck *ledgerFsck) InitCrypto() error {
+	// Next need to init MSP
+	err := common.InitCrypto(fsck.mspConfigPath, fsck.mspID, fsck.mspType)
+	if err != nil {
+		logger.Errorf("failed to initialize MSP related configuration, failure %s", err)
+		return err
+	}
+	return nil
+}
 
-	messageCryptoService := peergossip.NewMCS(
-		peer.NewChannelPolicyManagerGetter(),
+// OpenLedger
+func (fsck *ledgerFsck) OpenLedger() error {
+	// Initialize ledger management
+	ledgermgmt.Initialize(peer.ConfigTxProcessors)
+	ledgerIds, err := ledgermgmt.GetLedgerIDs()
+	if err != nil {
+		errMsg := fmt.Sprintf("failed to read ledger, because of %s", err)
+		logger.Errorf(errMsg)
+		return errors.New(errMsg)
+	}
+
+	// Check whenever channel name has corresponding ledger
+	var found = false
+	for _, name := range ledgerIds {
+		if name == fsck.channelName {
+			found = true
+		}
+	}
+
+	if !found {
+		errMsg := fmt.Sprintf("there is no ledger corresponding to the provided channel name %s. Exiting...", fsck.channelName)
+		logger.Errorf(errMsg)
+		return errors.New(errMsg)
+	}
+
+	if fsck.ledger, err = ledgermgmt.OpenLedger(fsck.channelName); err != nil {
+		errMsg := fmt.Sprintf("failed to open ledger %s, because of the %s", fsck.channelName, err)
+		logger.Errorf(errMsg)
+		return errors.New(errMsg)
+	}
+	return nil
+}
+
+// GetLatestChannelConfigBundle
+func (fsck *ledgerFsck) GetLatestChannelConfigBundle() error {
+	var cb *pb.Block
+	var err error
+	if cb, err = getCurrConfigBlockFromLedger(fsck.ledger); err != nil {
+		logger.Warningf("Failed to find config block on ledger %s(%s)", fsck.channelName, err)
+		return err
+	}
+
+	qe, err := fsck.ledger.NewQueryExecutor()
+	defer qe.Done()
+	if err != nil {
+		logger.Errorf("failed to obtain query executor, error is %s", err)
+		return err
+	}
+
+	confBytes, err := qe.GetState("", "resourcesconfigtx.CHANNEL_CONFIG_KEY")
+	if err != nil {
+		logger.Errorf("failed to read channel config, error %s", err)
+		return err
+	}
+	conf := &pb.Config{}
+	err = proto.Unmarshal(confBytes, conf)
+	if err != nil {
+		logger.Errorf("could not read configuration, due to %s", err)
+		return err
+	}
+
+	if conf != nil {
+		fsck.bundle, err = channelconfig.NewBundle(fsck.channelName, conf)
+		if err != nil {
+			return err
+		}
+	} else {
+		// Config was only stored in the statedb starting with v1.1 binaries
+		// so if the config is not found there, extract it manually from the config block
+		envelopeConfig, err := utils.ExtractEnvelope(cb, 0)
+		if err != nil {
+			return err
+		}
+
+		fsck.bundle, err = channelconfig.NewBundleFromEnvelope(envelopeConfig)
+		if err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// GetLatestResourceConfigBundle
+func (fsck *ledgerFsck) GetLatestResourceConfigBundle() error {
+	qe, err := fsck.ledger.NewQueryExecutor()
+	defer qe.Done()
+	if err != nil {
+		logger.Errorf("failed to obtain query executor, error is %s", err)
+		return err
+	}
+
+	resConf := &pb.Config{ChannelGroup: &pb.ConfigGroup{}}
+
+	fsck.rBundle, err = resourcesconfig.NewBundle(fsck.channelName, resConf, fsck.bundle)
+	if err != nil {
+		return err
+	}
+
+	return nil
+}
+
+func (fsck *ledgerFsck) Verify() {
+	blockchainInfo, err := fsck.ledger.GetBlockchainInfo()
+	if err != nil {
+		logger.Errorf("could not obtain blockchain information "+
+			"channel name %s, due to %s", fsck.channelName, err)
+		os.Exit(-1)
+	}
+
+	mcs := gossip.NewMCS(
+		fsck,
 		localmsp.NewSigner(),
 		mgmt.NewDeserializersManager())
 
-	provider := fsblkstorage.NewProvider(conf, indexConfig).(*fsblkstorage.FsBlockstoreProvider)
-
-	store, _ := provider.OpenBlockStore(channelID)
-	logger.Info("store is %s", store)
-
-	bcInfo, err := store.GetBlockchainInfo()
+	blockIndex := uint64(0)
+	block, err := fsck.ledger.GetBlockByNumber(blockIndex)
 	if err != nil {
-		return
+		logger.Errorf("failed to read block number %d from ledger, with error", blockIndex, err)
+		os.Exit(-1)
 	}
 
-	logger.Info("blockchain height is", bcInfo.Height)
-
-	// We may not need line 72-78, dirty approach
-	/*
-		gensisBlock, err := configtxtest.MakeGenesisBlock(channelID)
-		ledger := ledgermgmt.GetExistingLedger(channelID)
-		if err == nil {
-			logger.Info("ledger is nil")
-		} else {
-			peer.CreateChain(channelID, ledger, gensisBlock)
-		}
-	*/
-
-	var block *common.Block
-	var i uint64
-	for i = 0; i < bcInfo.Height; i++ {
-		block, _ = store.RetrieveBlockByNumber(i)
-		logger.Info(block.Header.Number)
-
-		marshaledBlock, err := proto.Marshal(block)
-		if err != nil {
-			return
-		}
-
-		err = messageCryptoService.VerifyBlock([]byte(channelID), i, marshaledBlock)
-
-		if err != nil {
-			logger.Info("block ERROR", err.Error())
-		} else {
-			logger.Info("block correct")
-		}
-
+	signedBlock, err := proto.Marshal(block)
+	if err != nil {
+		logger.Errorf("failed marshaling block, due to", err)
+		os.Exit(-1)
 	}
+
+	if err := mcs.VerifyBlock(gossipCommon.ChainID(fsck.channelName), block.Header.Number, signedBlock); err != nil {
+		logger.Errorf("failed to verify block with sequence number %d, due to %s", blockIndex, err)
+		os.Exit(-1)
+	}
+	logger.Infof("ledger height of channel %s, is %d\n", fsck.channelName, blockchainInfo.Height)
+}
+
+func main() {
+	fsck := &ledgerFsck{}
+	// Initialize configuration
+	if err := fsck.Initialize(); err != nil {
+		os.Exit(-1)
+	}
+	// Read configuration parameters
+	if err := fsck.ReadConfiguration(); err != nil {
+		os.Exit(-1)
+	}
+	// Init crypto & MSP
+	if err := fsck.InitCrypto(); err != nil {
+		os.Exit(-1)
+	}
+	// OpenLedger
+	if err := fsck.OpenLedger(); err != nil {
+		os.Exit(-1)
+	}
+	// GetLatestChannelConfigBundle
+	if err := fsck.GetLatestChannelConfigBundle(); err != nil {
+		os.Exit(-1)
+	}
+	// GetLatestResourceConfigBundle
+	if err := fsck.GetLatestResourceConfigBundle(); err != nil {
+		os.Exit(-1)
+	}
+
+	fsck.Verify()
+}
+
+// getCurrConfigBlockFromLedger read latest configuratoin block from the ledger
+func getCurrConfigBlockFromLedger(ledger ledger.PeerLedger) (*pb.Block, error) {
+	logger.Debugf("Getting config block")
+
+	// get last block.  Last block number is Height-1
+	blockchainInfo, err := ledger.GetBlockchainInfo()
+	if err != nil {
+		return nil, err
+	}
+	lastBlock, err := ledger.GetBlockByNumber(blockchainInfo.Height - 1)
+	if err != nil {
+		return nil, err
+	}
+
+	// get most recent config block location from last block metadata
+	configBlockIndex, err := utils.GetLastConfigIndexFromBlock(lastBlock)
+	if err != nil {
+		return nil, err
+	}
+
+	// get most recent config block
+	configBlock, err := ledger.GetBlockByNumber(configBlockIndex)
+	if err != nil {
+		return nil, err
+	}
+
+	logger.Debugf("Got config block[%d]", configBlockIndex)
+	return configBlock, nil
 }
