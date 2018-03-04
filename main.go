@@ -184,6 +184,32 @@ func (fsck *ledgerFsck) GetLatestResourceConfigBundle() error {
 	}
 
 	resConf := &pb.Config{ChannelGroup: &pb.ConfigGroup{}}
+	ac, ok := fsck.bundle.ApplicationConfig()
+	if !ok {
+		ac = nil
+	}
+	if ac != nil && ac.Capabilities().ResourcesTree() {
+		confBytes, err := qe.GetState("", "resourcesconfigtx.RESOURCES_CONFIG_KEY")
+		if err != nil {
+			logger.Errorf("failed to read channel config, error %s", err)
+			return err
+		}
+
+		conf := &pb.Config{}
+		err = proto.Unmarshal(confBytes, conf)
+		if err != nil {
+			logger.Errorf("could not read configuration, due to %s", err)
+			return err
+		}
+
+		if err != nil {
+			return err
+		}
+
+		if conf != nil {
+			resConf = conf
+		}
+	}
 
 	fsck.rBundle, err = resourcesconfig.NewBundle(fsck.channelName, resConf, fsck.bundle)
 	if err != nil {
