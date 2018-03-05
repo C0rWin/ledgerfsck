@@ -179,18 +179,17 @@ func (fsck *ledgerFsck) GetLatestChannelConfigBundle() error {
 			return err
 		}
 	}
+
+	capabilitiesSupportedOrPanic(fsck.bundle)
+
+	channelconfig.LogSanityChecks(fsck.bundle)
+
+
 	return nil
 }
 
 // GetLatestResourceConfigBundle
 func (fsck *ledgerFsck) GetLatestResourceConfigBundle() error {
-	qe, err := fsck.ledger.NewQueryExecutor()
-	defer qe.Done()
-	if err != nil {
-		logger.Errorf("failed to obtain query executor, error is %s", err)
-		return err
-	}
-
 	resConf := &pb.Config{ChannelGroup: &pb.ConfigGroup{}}
 	ac, ok := fsck.bundle.ApplicationConfig()
 	if !ok {
@@ -200,6 +199,13 @@ func (fsck *ledgerFsck) GetLatestResourceConfigBundle() error {
 	logger.Info("check capabilities whenever there is support for resource tree")
 	if ac != nil && ac.Capabilities().ResourcesTree() {
 		logger.Infof("application config doesn't support resource tree capabilities")
+		qe, err := fsck.ledger.NewQueryExecutor()
+		defer qe.Done()
+		if err != nil {
+			logger.Errorf("failed to obtain query executor, error is %s", err)
+			return err
+		}
+
 		confBytes, err := qe.GetState("", "resourcesconfigtx.RESOURCES_CONFIG_KEY")
 		if err != nil {
 			logger.Errorf("failed to read channel config, error %s", err)
@@ -325,4 +331,19 @@ func getCurrConfigBlockFromLedger(ledger ledger.PeerLedger) (*pb.Block, error) {
 
 	logger.Debugf("Got config block[%d]", configBlockIndex)
 	return configBlock, nil
+}
+
+func capabilitiesSupportedOrPanic(res channelconfig.Resources) {
+	ac, ok := res.ApplicationConfig()
+	if !ok {
+		logger.Panicf("[channel %s] does not have application config so is incompatible", res.ConfigtxValidator().ChainID())
+	}
+
+	if err := ac.Capabilities().Supported(); err != nil {
+		logger.Panicf("[channel %s] incompatible %s", res.ConfigtxValidator(), err)
+	}
+
+	if err := res.ChannelConfig().Capabilities().Supported(); err != nil {
+		logger.Panicf("[channel %s] incompatible %s", res.ConfigtxValidator(), err)
+	}
 }
