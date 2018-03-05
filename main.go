@@ -190,6 +190,7 @@ func (fsck *ledgerFsck) GetLatestChannelConfigBundle() error {
 
 // GetLatestResourceConfigBundle
 func (fsck *ledgerFsck) GetLatestResourceConfigBundle() error {
+	var err error
 	resConf := &pb.Config{ChannelGroup: &pb.ConfigGroup{}}
 	ac, ok := fsck.bundle.ApplicationConfig()
 	if !ok {
