@@ -189,6 +189,7 @@ func (fsck *ledgerFsck) GetLatestResourceConfigBundle() error {
 		ac = nil
 	}
 	if ac != nil && ac.Capabilities().ResourcesTree() {
+		logger.Infof("application config doesn't support resource tree capabilities")
 		confBytes, err := qe.GetState("", "resourcesconfigtx.RESOURCES_CONFIG_KEY")
 		if err != nil {
 			logger.Errorf("failed to read channel config, error %s", err)
@@ -215,6 +216,15 @@ func (fsck *ledgerFsck) GetLatestResourceConfigBundle() error {
 	if err != nil {
 		return err
 	}
+
+	resourcesconfig.NewBundleSource(
+		fsck.rBundle,
+		func(bundle *resourcesconfig.Bundle) {
+			logger.Infof("Initialize MSP Manager")
+			mgmt.XXXSetMSPManager(fsck.channelName, bundle.ChannelConfig().MSPManager())
+		},
+	)
+
 
 	return nil
 }
