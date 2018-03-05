@@ -261,7 +261,7 @@ func (fsck *ledgerFsck) Verify() {
 	}
 
 	if err := mcs.VerifyBlock(gossipCommon.ChainID(fsck.channelName), block.Header.Number, signedBlock); err != nil {
-		logger.Errorf("failed to verify block with sequence number %d, due to %s", blockIndex, err)
+		logger.Errorf("failed to verify block with sequence number %d. %s", blockIndex, err)
 		os.Exit(-1)
 	}
 	logger.Infof("ledger height of channel %s, is %d\n", fsck.channelName, blockchainInfo.Height)
