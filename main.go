@@ -78,6 +78,10 @@ func (fsck *ledgerFsck) ReadConfiguration() error {
 		return errors.New(errMsg)
 	}
 
+	logger.Infof("channel name = %s", fsck.channelName)
+	logger.Infof("MSP folder path = %s", fsck.mspConfigPath)
+	logger.Infof("MSPID = %s", fsck.mspID)
+	logger.Infof("MSP type = %s", fsck.mspType)
 	return nil
 }
 
@@ -141,6 +145,7 @@ func (fsck *ledgerFsck) GetLatestChannelConfigBundle() error {
 		return err
 	}
 
+	logger.Info("reading configuration from state DB")
 	confBytes, err := qe.GetState("", "resourcesconfigtx.CHANNEL_CONFIG_KEY")
 	if err != nil {
 		logger.Errorf("failed to read channel config, error %s", err)
@@ -154,6 +159,7 @@ func (fsck *ledgerFsck) GetLatestChannelConfigBundle() error {
 	}
 
 	if conf != nil {
+		logger.Info("initialize channel config bundle")
 		fsck.bundle, err = channelconfig.NewBundle(fsck.channelName, conf)
 		if err != nil {
 			return err
@@ -161,11 +167,13 @@ func (fsck *ledgerFsck) GetLatestChannelConfigBundle() error {
 	} else {
 		// Config was only stored in the statedb starting with v1.1 binaries
 		// so if the config is not found there, extract it manually from the config block
+		logger.Info("configuration wasn't stored in state DB retrieving config envelope from ledger")
 		envelopeConfig, err := utils.ExtractEnvelope(cb, 0)
 		if err != nil {
 			return err
 		}
 
+		logger.Info("initialize channel config bundle from config transaction")
 		fsck.bundle, err = channelconfig.NewBundleFromEnvelope(envelopeConfig)
 		if err != nil {
 			return err
@@ -188,6 +196,8 @@ func (fsck *ledgerFsck) GetLatestResourceConfigBundle() error {
 	if !ok {
 		ac = nil
 	}
+
+	logger.Info("check capabilities whenever there is support for resource tree")
 	if ac != nil && ac.Capabilities().ResourcesTree() {
 		logger.Infof("application config doesn't support resource tree capabilities")
 		confBytes, err := qe.GetState("", "resourcesconfigtx.RESOURCES_CONFIG_KEY")
@@ -212,11 +222,13 @@ func (fsck *ledgerFsck) GetLatestResourceConfigBundle() error {
 		}
 	}
 
+	logger.Info("initialize resource config bundle")
 	fsck.rBundle, err = resourcesconfig.NewBundle(fsck.channelName, resConf, fsck.bundle)
 	if err != nil {
 		return err
 	}
 
+	logger.Info("create new bundle source")
 	resourcesconfig.NewBundleSource(
 		fsck.rBundle,
 		func(bundle *resourcesconfig.Bundle) {
