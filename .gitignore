@@ -1,4 +1,5 @@
 # Local build binaries
+ledgerfsck
 node-cli/node-cli
 *.pyc
 /build/*
