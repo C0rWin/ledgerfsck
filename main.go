@@ -228,15 +228,8 @@ func (fsck *ledgerFsck) GetLatestResourceConfigBundle() error {
 		return err
 	}
 
-	logger.Info("create new bundle source")
-	resourcesconfig.NewBundleSource(
-		fsck.rBundle,
-		func(bundle *resourcesconfig.Bundle) {
-			logger.Infof("Initialize MSP Manager")
-			mgmt.XXXSetMSPManager(fsck.channelName, bundle.ChannelConfig().MSPManager())
-		},
-	)
-
+	logger.Infof("Initialize MSP Manager")
+	mgmt.XXXSetMSPManager(fsck.channelName, fsck.rBundle.ChannelConfig().MSPManager())
 
 	return nil
 }
