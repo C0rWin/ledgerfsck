@@ -26,7 +26,7 @@ import (
 	"github.com/spf13/viper"
 )
 
-var logger = flogging.MustGetLogger("common/tools/ledgerfsck")
+var logger = flogging.MustGetLogger("ledgerfsck")
 
 type ledgerFsck struct {
 	channelName   string
