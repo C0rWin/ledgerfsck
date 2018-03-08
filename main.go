@@ -1,6 +1,7 @@
 package main
 
 import (
+	"bytes"
 	"flag"
 	"fmt"
 	"os"
@@ -23,7 +24,6 @@ import (
 	"github.com/hyperledger/fabric/protos/utils"
 	"github.com/pkg/errors"
 	"github.com/spf13/viper"
-	"bytes"
 )
 
 var logger = flogging.MustGetLogger("common/tools/ledgerfsck")
