@@ -23,6 +23,7 @@ import (
 	"github.com/hyperledger/fabric/protos/utils"
 	"github.com/pkg/errors"
 	"github.com/spf13/viper"
+	"bytes"
 )
 
 var logger = flogging.MustGetLogger("common/tools/ledgerfsck")
@@ -184,7 +185,6 @@ func (fsck *ledgerFsck) GetLatestChannelConfigBundle() error {
 
 	channelconfig.LogSanityChecks(fsck.bundle)
 
-
 	return nil
 }
 
@@ -249,29 +249,53 @@ func (fsck *ledgerFsck) Verify() {
 		os.Exit(-1)
 	}
 
+	logger.Infof("ledger height of channel %s, is %d\n", fsck.channelName, blockchainInfo.Height)
+
 	mcs := gossip.NewMCS(
 		fsck,
 		localmsp.NewSigner(),
 		mgmt.NewDeserializersManager())
 
-	blockIndex := uint64(0)
-	block, err := fsck.ledger.GetBlockByNumber(blockIndex)
+	block, err := fsck.ledger.GetBlockByNumber(uint64(0))
 	if err != nil {
-		logger.Errorf("failed to read block number %d from ledger, with error", blockIndex, err)
+		logger.Errorf("failed to read genesis block number, with error", err)
 		os.Exit(-1)
 	}
 
-	signedBlock, err := proto.Marshal(block)
-	if err != nil {
-		logger.Errorf("failed marshaling block, due to", err)
-		os.Exit(-1)
-	}
+	// Get hash of genesis block
+	prevHash := block.Header.Hash()
 
-	if err := mcs.VerifyBlock(gossipCommon.ChainID(fsck.channelName), block.Header.Number, signedBlock); err != nil {
-		logger.Errorf("failed to verify block with sequence number %d. %s", blockIndex, err)
-		os.Exit(-1)
+	// complete full scan and check over ledger blocks
+	for blockIndex := uint64(1); blockIndex < blockchainInfo.Height; blockIndex++ {
+		block, err := fsck.ledger.GetBlockByNumber(blockIndex)
+		if err != nil {
+			logger.Errorf("failed to read block number %d from ledger, with error", blockIndex, err)
+			os.Exit(-1)
+		}
+
+		if !bytes.Equal(prevHash, block.Header.PreviousHash) {
+			logger.Errorf("block number [%d]: hash comparison has failed, previous block hash %x doesn't"+
+				" equal to hash claimed within block header %x", blockIndex, prevHash, block.Header.PreviousHash)
+			os.Exit(-1)
+		} else {
+			logger.Infof("block number [%d]: previous hash matched", blockIndex)
+		}
+
+		signedBlock, err := proto.Marshal(block)
+		if err != nil {
+			logger.Errorf("failed marshaling block, due to", err)
+			os.Exit(-1)
+		}
+
+		if err := mcs.VerifyBlock(gossipCommon.ChainID(fsck.channelName), block.Header.Number, signedBlock); err != nil {
+			logger.Errorf("failed to verify block with sequence number %d. %s", blockIndex, err)
+			os.Exit(-1)
+		} else {
+			logger.Infof("Block [seq = %d], hash = [%x], previous hash = [%x], VERIFICATION PASSED",
+				blockIndex, block.Header.Hash(), block.Header.PreviousHash)
+		}
+		prevHash = block.Header.Hash()
 	}
-	logger.Infof("ledger height of channel %s, is %d\n", fsck.channelName, blockchainInfo.Height)
 }
 
 func main() {
