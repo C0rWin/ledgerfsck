@@ -659,6 +659,4 @@ $ ./ledgerfsck --channelName mychannel --mspID Org1MSP --mspPath ~/golang/src/gi
 2018-03-08 02:57:17.813 IST [ledgerfsck] Verify -> INFO 0fd Block [seq = 118], hash = [0f4eb4ac5460570655881adf59ddf9984532ce4ae3455edd53a64893115910c8], previous hash = [c6fa496ab34af7481a4e0dacfceb7e5c1dce517880c81d3de3b4b59700e0d5e8], VERIFICATION PASSED
 2018-03-08 02:57:17.813 IST [ledgerfsck] Verify -> INFO 0fe block number [119]: previous hash matched
 2018-03-08 02:57:17.813 IST [ledgerfsck] Verify -> INFO 0ff Block [seq = 119], hash = [33744d41f05eeda20ec96b5e4f252fcc50d72dfe87a6803e96266292e4f6e661], previous hash = [0f4eb4ac5460570655881adf59ddf9984532ce4ae3455edd53a64893115910c8], VERIFICATION PASSED
-
-
 ```
