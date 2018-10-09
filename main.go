@@ -12,7 +12,6 @@ import (
 	"github.com/hyperledger/fabric/common/flogging"
 	"github.com/hyperledger/fabric/common/localmsp"
 	"github.com/hyperledger/fabric/common/policies"
-	"github.com/hyperledger/fabric/common/resourcesconfig"
 	"github.com/hyperledger/fabric/core/ledger"
 	"github.com/hyperledger/fabric/core/ledger/ledgermgmt"
 	"github.com/hyperledger/fabric/core/peer"
@@ -36,11 +35,10 @@ type ledgerFsck struct {
 
 	ledger  ledger.PeerLedger
 	bundle  *channelconfig.Bundle
-	rBundle *resourcesconfig.Bundle
 }
 
 func (fsck *ledgerFsck) Manager(channelID string) (policies.Manager, bool) {
-	return fsck.rBundle.PolicyManager(), true
+	return fsck.bundle.PolicyManager(), true
 }
 
 // Initialize
@@ -188,59 +186,6 @@ func (fsck *ledgerFsck) GetLatestChannelConfigBundle() error {
 	return nil
 }
 
-// GetLatestResourceConfigBundle
-func (fsck *ledgerFsck) GetLatestResourceConfigBundle() error {
-	var err error
-	resConf := &pb.Config{ChannelGroup: &pb.ConfigGroup{}}
-	ac, ok := fsck.bundle.ApplicationConfig()
-	if !ok {
-		ac = nil
-	}
-
-	logger.Info("check capabilities whenever there is support for resource tree")
-	if ac != nil && ac.Capabilities().ResourcesTree() {
-		logger.Infof("application config doesn't support resource tree capabilities")
-		qe, err := fsck.ledger.NewQueryExecutor()
-		defer qe.Done()
-		if err != nil {
-			logger.Errorf("failed to obtain query executor, error is %s", err)
-			return err
-		}
-
-		confBytes, err := qe.GetState("", "resourcesconfigtx.RESOURCES_CONFIG_KEY")
-		if err != nil {
-			logger.Errorf("failed to read channel config, error %s", err)
-			return err
-		}
-
-		conf := &pb.Config{}
-		err = proto.Unmarshal(confBytes, conf)
-		if err != nil {
-			logger.Errorf("could not read configuration, due to %s", err)
-			return err
-		}
-
-		if err != nil {
-			return err
-		}
-
-		if conf != nil {
-			resConf = conf
-		}
-	}
-
-	logger.Info("initialize resource config bundle")
-	fsck.rBundle, err = resourcesconfig.NewBundle(fsck.channelName, resConf, fsck.bundle)
-	if err != nil {
-		return err
-	}
-
-	logger.Infof("Initialize MSP Manager")
-	mgmt.XXXSetMSPManager(fsck.channelName, fsck.rBundle.ChannelConfig().MSPManager())
-
-	return nil
-}
-
 func (fsck *ledgerFsck) Verify() {
 	blockchainInfo, err := fsck.ledger.GetBlockchainInfo()
 	if err != nil {
@@ -318,10 +263,6 @@ func main() {
 	}
 	// GetLatestChannelConfigBundle
 	if err := fsck.GetLatestChannelConfigBundle(); err != nil {
-		os.Exit(-1)
-	}
-	// GetLatestResourceConfigBundle
-	if err := fsck.GetLatestResourceConfigBundle(); err != nil {
 		os.Exit(-1)
 	}
 
