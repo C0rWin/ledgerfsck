@@ -12,9 +12,15 @@ import (
 	"github.com/hyperledger/fabric/common/flogging"
 	"github.com/hyperledger/fabric/common/localmsp"
 	"github.com/hyperledger/fabric/common/policies"
+	"github.com/hyperledger/fabric/core/chaincode/platforms"
+	"github.com/hyperledger/fabric/core/chaincode/platforms/car"
+	"github.com/hyperledger/fabric/core/chaincode/platforms/golang"
+	"github.com/hyperledger/fabric/core/chaincode/platforms/java"
+	"github.com/hyperledger/fabric/core/chaincode/platforms/node"
 	"github.com/hyperledger/fabric/core/ledger"
 	"github.com/hyperledger/fabric/core/ledger/ledgermgmt"
 	"github.com/hyperledger/fabric/core/peer"
+	"github.com/hyperledger/fabric/core/scc/lscc"
 	gossipCommon "github.com/hyperledger/fabric/gossip/common"
 	"github.com/hyperledger/fabric/msp/mgmt"
 	"github.com/hyperledger/fabric/peer/common"
@@ -98,7 +104,22 @@ func (fsck *ledgerFsck) InitCrypto() error {
 // OpenLedger
 func (fsck *ledgerFsck) OpenLedger() error {
 	// Initialize ledger management
-	ledgermgmt.Initialize(peer.ConfigTxProcessors)
+	pr := platforms.NewRegistry(
+		&golang.Platform{},
+		&node.Platform{},
+		&java.Platform{},
+		&car.Platform{},
+	)
+
+	deployedCCInfoProvider := &lscc.DeployedCCInfoProvider{}
+
+	ledgermgmt.Initialize(
+		&ledgermgmt.Initializer{
+			CustomTxProcessors:            peer.ConfigTxProcessors,
+			PlatformRegistry:              pr,
+			DeployedChaincodeInfoProvider: deployedCCInfoProvider,
+		})
+
 	ledgerIds, err := ledgermgmt.GetLedgerIDs()
 	if err != nil {
 		errMsg := fmt.Sprintf("failed to read ledger, because of %s", err)
