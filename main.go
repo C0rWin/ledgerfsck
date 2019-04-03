@@ -14,7 +14,6 @@ import (
 	"github.com/hyperledger/fabric/common/policies"
 	"github.com/hyperledger/fabric/core/ledger"
 	"github.com/hyperledger/fabric/core/ledger/ledgermgmt"
-	"github.com/hyperledger/fabric/core/peer"
 	gossipCommon "github.com/hyperledger/fabric/gossip/common"
 	"github.com/hyperledger/fabric/msp/mgmt"
 	"github.com/hyperledger/fabric/peer/common"
@@ -33,8 +32,8 @@ type ledgerFsck struct {
 	mspID         string
 	mspType       string
 
-	ledger  ledger.PeerLedger
-	bundle  *channelconfig.Bundle
+	ledger ledger.PeerLedger
+	bundle *channelconfig.Bundle
 }
 
 func (fsck *ledgerFsck) Manager(channelID string) (policies.Manager, bool) {
@@ -98,7 +97,7 @@ func (fsck *ledgerFsck) InitCrypto() error {
 // OpenLedger
 func (fsck *ledgerFsck) OpenLedger() error {
 	// Initialize ledger management
-	ledgermgmt.Initialize(peer.ConfigTxProcessors)
+	ledgermgmt.Initialize(&ledgermgmt.Initializer{})
 	ledgerIds, err := ledgermgmt.GetLedgerIDs()
 	if err != nil {
 		errMsg := fmt.Sprintf("failed to read ledger, because of %s", err)
@@ -210,8 +209,24 @@ func (fsck *ledgerFsck) Verify() {
 	// Get hash of genesis block
 	prevHash := block.Header.Hash()
 
+	// prepare info for co-routines execution
+	var interval = uint64(blockchainInfo.Height / 100)
+	var multiplier uint64 = 0
+
 	// complete full scan and check over ledger blocks
-	for blockIndex := uint64(1); blockIndex < blockchainInfo.Height; blockIndex++ {
+	if multiplier == 0 {
+		multiplier = interval
+	} else {
+		multiplier++
+	}
+	if blockchainInfo.Height == interval || blockchainInfo.Height == interval*multiplier {
+		go checker(fsck, interval, prevHash, mcs)
+
+	}
+}
+
+func checker(fsck *ledgerFsck, interval uint64, prevHash []byte, mcs *gossip.MSPMessageCryptoService) {
+	for blockIndex := uint64(1); blockIndex < interval; blockIndex++ {
 		block, err := fsck.ledger.GetBlockByNumber(blockIndex)
 		if err != nil {
 			logger.Errorf("failed to read block number %d from ledger, with error", blockIndex, err)
