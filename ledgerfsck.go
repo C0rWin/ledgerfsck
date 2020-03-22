@@ -65,6 +65,12 @@ func (fsck *ledgerFsck) Initialize() error {
 
 // ReadConfiguration read configuration parameters
 func (fsck *ledgerFsck) ReadConfiguration() error {
+	// For environment variables.
+	viper.SetEnvPrefix(common.CmdRoot)
+	viper.AutomaticEnv()
+	replacer := strings.NewReplacer(".", "_")
+	viper.SetEnvKeyReplacer(replacer)
+
 	// Read configuration parameters
 	flag.StringVar(&fsck.channelName, "channelName", "testChannel", "channel name to check the integrity")
 	flag.StringVar(&fsck.mspConfigPath, "mspPath", "", "path to the msp folder")
