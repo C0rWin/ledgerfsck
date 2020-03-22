@@ -147,12 +147,7 @@ func (fsck *ledgerFsck) OpenLedger() error {
 
 // GetLatestChannelConfigBundle
 func (fsck *ledgerFsck) GetLatestChannelConfigBundle() error {
-	var cb *pb.Block
 	var err error
-	if cb, err = getCurrConfigBlockFromLedger(fsck.ledger); err != nil {
-		logger.Warningf("Failed to find config block on ledger %s(%s)", fsck.channelName, err)
-		return err
-	}
 
 	qe, err := fsck.ledger.NewQueryExecutor()
 	defer qe.Done()
@@ -183,6 +178,13 @@ func (fsck *ledgerFsck) GetLatestChannelConfigBundle() error {
 	} else {
 		// Config was only stored in the statedb starting with v1.1 binaries
 		// so if the config is not found there, extract it manually from the config block
+
+		var cb *pb.Block
+		if cb, err = getCurrConfigBlockFromLedger(fsck.ledger); err != nil {
+			logger.Warningf("Failed to find config block on ledger %s(%s)", fsck.channelName, err)
+			return err
+		}
+
 		logger.Info("configuration wasn't stored in state DB retrieving config envelope from ledger")
 		envelopeConfig, err := utils.ExtractEnvelope(cb, 0)
 		if err != nil {
