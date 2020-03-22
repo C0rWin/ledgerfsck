@@ -11,9 +11,17 @@ import (
 	"github.com/hyperledger/fabric/common/channelconfig"
 	"github.com/hyperledger/fabric/common/flogging"
 	"github.com/hyperledger/fabric/common/localmsp"
+	"github.com/hyperledger/fabric/common/metrics/disabled"
 	"github.com/hyperledger/fabric/common/policies"
+	"github.com/hyperledger/fabric/core/chaincode/platforms"
+	"github.com/hyperledger/fabric/core/chaincode/platforms/car"
+	"github.com/hyperledger/fabric/core/chaincode/platforms/golang"
+	"github.com/hyperledger/fabric/core/chaincode/platforms/java"
+	"github.com/hyperledger/fabric/core/chaincode/platforms/node"
 	"github.com/hyperledger/fabric/core/ledger"
 	"github.com/hyperledger/fabric/core/ledger/ledgermgmt"
+	"github.com/hyperledger/fabric/core/peer"
+	"github.com/hyperledger/fabric/core/scc/lscc"
 	gossipCommon "github.com/hyperledger/fabric/gossip/common"
 	"github.com/hyperledger/fabric/msp/mgmt"
 	"github.com/hyperledger/fabric/peer/common"
@@ -97,7 +105,17 @@ func (fsck *ledgerFsck) InitCrypto() error {
 // OpenLedger
 func (fsck *ledgerFsck) OpenLedger() error {
 	// Initialize ledger management
-	ledgermgmt.Initialize(&ledgermgmt.Initializer{})
+	ledgermgmt.Initialize(&ledgermgmt.Initializer{
+		CustomTxProcessors: peer.ConfigTxProcessors,
+		PlatformRegistry: platforms.NewRegistry(
+			&golang.Platform{},
+			&node.Platform{},
+			&java.Platform{},
+			&car.Platform{},
+		),
+		DeployedChaincodeInfoProvider: &lscc.DeployedCCInfoProvider{},
+		MetricsProvider:               &disabled.Provider{},
+	})
 	ledgerIds, err := ledgermgmt.GetLedgerIDs()
 	if err != nil {
 		errMsg := fmt.Sprintf("failed to read ledger, because of %s", err)
@@ -209,24 +227,8 @@ func (fsck *ledgerFsck) Verify() {
 	// Get hash of genesis block
 	prevHash := block.Header.Hash()
 
-	// prepare info for co-routines execution
-	var interval = uint64(blockchainInfo.Height / 100)
-	var multiplier uint64 = 0
-
 	// complete full scan and check over ledger blocks
-	if multiplier == 0 {
-		multiplier = interval
-	} else {
-		multiplier++
-	}
-	if blockchainInfo.Height == interval || blockchainInfo.Height == interval*multiplier {
-		go checker(fsck, interval, prevHash, mcs)
-
-	}
-}
-
-func checker(fsck *ledgerFsck, interval uint64, prevHash []byte, mcs *gossip.MSPMessageCryptoService) {
-	for blockIndex := uint64(1); blockIndex < interval; blockIndex++ {
+	for blockIndex := uint64(1); blockIndex < blockchainInfo.Height; blockIndex++ {
 		block, err := fsck.ledger.GetBlockByNumber(blockIndex)
 		if err != nil {
 			logger.Errorf("failed to read block number %d from ledger, with error", blockIndex, err)

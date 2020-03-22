@@ -268,7 +268,7 @@ peer:
     # Path on the file system where peer will store data (eg ledger). This
     # location must be access control protected to prevent unintended
     # modification that might corrupt the peer operations.
-    fileSystemPath: /var/hyperledger/production
+    fileSystemPath: /Users/bartem/sandbox/course/data/peer0.org1.example.com/
 
     # BCCSP (Blockchain crypto provider): Select which crypto implementation or
     # library to use
